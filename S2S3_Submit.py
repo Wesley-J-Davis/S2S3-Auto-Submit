@@ -21,7 +21,7 @@ class S2SForecastRunner:
         # Base configuration
         self.base_path = Path("/home/gmaofcst/geos-s2s-3")
         self.experiment_dir = self.base_path / experiment_name
-        self.script_dir = Path("/home/gmaofcst/ODAS/OBS/V3/D_BOSS/")
+        self.script_dir = Path("/home/dao_ops/operations/GIT-OPS/S2S3-Auto-Submit")
         self.forecast_dates_file = self.script_dir / "forecast_dates.txt"
         self.check_script = self.script_dir / "s2s_check.py"
         
@@ -110,7 +110,7 @@ class S2SForecastRunner:
         
         try:
             # Clean up any previous check files
-            (self.experiment_dir / "ODAS_Check.txt").unlink(missing_ok=True)
+            #(self.experiment_dir / "ODAS_Check.txt").unlink(missing_ok=True)
             
             # Submit job from the experiment directory
             result = subprocess.run(
