@@ -27,6 +27,7 @@ class S2SForecastRunner:
         
         # Experiment-specific files
         self.job_script = self.experiment_dir / "gcm_run.j"
+        self.cap_restart = self.experiment_dir / "cap_restart"
         
         # Timing configuration
         self.check_interval = 900  # 15 minutes
@@ -39,6 +40,52 @@ class S2SForecastRunner:
         
         logger.info(f"Initialized for experiment: {experiment_name}")
         logger.info(f"Experiment directory: {self.experiment_dir}")
+
+    def read_cap_restart_date(self):
+        """Read and parse the cap_restart file to get the restart date"""
+        try:
+            with open(self.cap_restart, 'r') as f:
+                content = f.read().strip()
+            
+            # Parse the format: "20250521 000000"
+            date_part = content.split()[0]  # Get just the date part
+            restart_date = datetime.strptime(date_part, '%Y%m%d')
+            formatted_date = restart_date.strftime('%d-%b')
+            logger.info(f"Cap restart date: {restart_date.strftime('%Y-%m-%d')}")
+            return formatted_date
+            
+        except FileNotFoundError:
+            logger.error(f"Cap restart file not found: {self.cap_restart}")
+            return None
+        except (ValueError, IndexError) as e:
+            logger.error(f"Error parsing cap_restart file: {e}")
+            return None
+
+    def is_cap_restart_in_forecast_schedule(self):
+        """Check if cap_restart date matches any date in forecast_dates.txt"""
+        restart_date = self.read_cap_restart_date()
+        if restart_date is None:
+            return False
+        
+        # Convert restart date to the format used in forecast_dates.txt (DD-MMM)
+        restart_date_string = restart_date.strftime('%d-%b')
+        
+        try:
+            with open(self.forecast_dates_file, 'r') as f:
+                scheduled_dates = [line.strip() for line in f]
+            
+            is_scheduled = restart_date_string in scheduled_dates
+            
+            if is_scheduled:
+                logger.info(f"Cap restart date {restart_date_string} found in forecast schedule")
+            else:
+                logger.info(f"Cap restart date {restart_date_string} NOT found in forecast schedule")
+            
+            return is_scheduled
+            
+        except FileNotFoundError:
+            logger.error(f"Forecast dates file not found: {self.forecast_dates_file}")
+            return False
     
     def validate_experiment(self):
         """Check if experiment directory and required files exist"""
@@ -61,14 +108,9 @@ class S2SForecastRunner:
         return True
         
     def check_forecast_date(self, input_date):
-            """Check if date matches the 5-day pattern starting from Jan 1"""
-            forecast_date = datetime.strptime(input_date, '%Y-%m-%d')
-            jan_1 = datetime(forecast_date.year, 1, 1)
-            days_since_jan_1 = (forecast_date - jan_1).days
-    
-            # Every 5 days starting from Jan 1
-            return days_since_jan_1 % 5 == 0
-            
+            """are both the formatted input date and formatted cap restart date in forecast dates.txt"""
+            """for nrt, """
+                        
     def wait_for_files(self, forecast_date):
         """Wait for required files using the existing check script"""
         dt = datetime.strptime(forecast_date, '%Y-%m-%d')
@@ -162,7 +204,12 @@ class S2SForecastRunner:
         if not self.validate_experiment():
             self.send_notification(success=False, message="Experiment validation failed")
             return 1
-        
+            
+        # Check if cap_restart date is in forecast schedule
+        if not self.is_cap_restart_in_forecast_schedule():
+            logger.info("Cap restart date is not in forecast schedule - skipping")
+            return 0
+            
         # Check if forecast should run
         if not self.check_forecast_date(forecast_date):
             logger.info("Forecast not scheduled for this date")
@@ -193,6 +240,6 @@ if __name__ == "__main__":
     experiment_name = sys.argv[1]
     forecast_date = sys.argv[2]
     
-    runner = S2SForecastRunner(experiment_name)
+    runner = S2SForecastRunner(experiment_name, forecast_date)
     exit_code = runner.run(forecast_date)
     sys.exit(exit_code)
