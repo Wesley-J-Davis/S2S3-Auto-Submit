@@ -35,7 +35,8 @@ class S2SForecastRunner:
         
         # Email configuration - could be experiment-specific if needed
         self.email_list = [
-            "wesley.j.davis@nasa.gov"
+            "oa@gmao.gsfc.nasa.gov",
+            "veronica.i.ruizxomchuk@nasa.gov"
         ]
         
         logger.info(f"Initialized for experiment: {experiment_name}")
@@ -203,10 +204,9 @@ def valid_fcst_date_check(self, input_date):
         # Simple notification - could enhance later
         
         try:
-            # For now, just log. Could implement actual email sending if needed
-            logger.info(f"Would send email to {len(self.email_list)} recipients")
-            logger.info(f"Subject: {subject}")
-            logger.info(f"Body: {body}")
+            cmd = ["/usr/bin/mailx", "-s", subject] + self.email_list
+            subprocess.run(cmd, input=body + "\n", text=True, check=True)
+            logger.info(f"Successfully sent notification to {', '.join(self.email_list)}") 
         except Exception as e:
             logger.error(f"Failed to send notification: {e}")
     
