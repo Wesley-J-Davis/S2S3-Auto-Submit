@@ -27,6 +27,7 @@ class S2SForecastRunner:
         
         # Experiment-specific files
         self.job_script = self.experiment_dir / "gcm_run.j"
+        self.cap_restart = self.experiment_dir / "cap_restart"
         
         # Timing configuration
         self.check_interval = 900  # 15 minutes
@@ -39,7 +40,7 @@ class S2SForecastRunner:
         
         logger.info(f"Initialized for experiment: {experiment_name}")
         logger.info(f"Experiment directory: {self.experiment_dir}")
-    
+
     def validate_experiment(self):
         """Check if experiment directory and required files exist"""
         if not self.experiment_dir.exists():
@@ -60,15 +61,76 @@ class S2SForecastRunner:
         logger.info("Experiment validation passed")
         return True
         
-    def check_forecast_date(self, input_date):
-            """Check if date matches the 5-day pattern starting from Jan 1"""
-            forecast_date = datetime.strptime(input_date, '%Y-%m-%d')
-            jan_1 = datetime(forecast_date.year, 1, 1)
-            days_since_jan_1 = (forecast_date - jan_1).days
+def valid_fcst_date_check(self, input_date):
+    """
+    Check if the input date is valid for forecast based on:
+    1. Must be a scheduled forecast date
+    2. Must have specific relationship with restart date based on experiment type
+       - For GiOCEAN_e1: Must be 30 pentads ahead of restart date
+       - For GiOcean_NRT: Must be 1 pentad ahead of restart date
     
-            # Every 5 days starting from Jan 1
-            return days_since_jan_1 % 5 == 0
+    Returns: boolean indicating if forecast should run
+    """
+    try:
+        # Read forecast schedule
+        with open(self.forecast_dates_file, 'r') as f:
+            scheduled_dates = [line.strip() for line in f]
+        
+        # Parse restart date
+        with open(self.cap_restart, 'r') as f:
+            content = f.read().strip()
+        date_part = content.split()[0]
+        restart_date_object = datetime.strptime(date_part, '%Y%m%d')
+        formatted_restart_date = restart_date_object.strftime("%d-%b")
+        
+        # Format input date
+        input_date_object = datetime.strptime(input_date, "%Y-%m-%d")
+        formatted_input_date = input_date_object.strftime("%d-%b")
+        
+        # Check if input date is scheduled
+        if formatted_input_date not in scheduled_dates:
+            logger.info(f"Input date {formatted_input_date} is not a scheduled forecast date")
+            return False
+        
+        # Find positions in the schedule
+        try:
+            input_date_index = scheduled_dates.index(formatted_input_date)
+            restart_date_index = scheduled_dates.index(formatted_restart_date)
+        except ValueError:
+            logger.error(f"Restart date {formatted_restart_date} not found in schedule")
+            return False
+        
+        # Calculate the distance between dates (handling wrap-around)
+        total_dates = len(scheduled_dates)
+        distance = (input_date_index - restart_date_index) % total_dates
+        
+        # Check experiment-specific conditions
+        if self.experiment_name == "GiOCEAN_e1":
+            if distance == 30:
+                logger.info(f"Valid: {formatted_input_date} is 30 pentads ahead of restart date {formatted_restart_date}")
+                return True
+            else:
+                logger.info(f"Invalid: {formatted_input_date} is {distance} pentads from restart date {formatted_restart_date} (expected 30)")
+                return False
+                
+        elif self.experiment_name == "GiOcean_NRT":
+            if distance == 1:
+                logger.info(f"Valid: {formatted_input_date} is 1 pentad ahead of restart date {formatted_restart_date}")
+                return True
+            else:
+                logger.info(f"Invalid: {formatted_input_date} is {distance} pentads from restart date {formatted_restart_date} (expected 1)")
+                return False
+        else:
+            logger.warning(f"Unknown experiment type: {self.experiment_name}")
+            return False
             
+    except FileNotFoundError as e:
+        logger.error(f"Required file not found: {e}")
+        return False
+    except (ValueError, IndexError) as e:
+        logger.error(f"Error processing dates: {e}")
+        return False
+        
     def wait_for_files(self, forecast_date):
         """Wait for required files using the existing check script"""
         dt = datetime.strptime(forecast_date, '%Y-%m-%d')
@@ -107,11 +169,7 @@ class S2SForecastRunner:
     def submit_job(self):
         """Submit the SLURM job"""
         logger.info(f"Submitting job for experiment {self.experiment_name}...")
-        
         try:
-            # Clean up any previous check files
-            #(self.experiment_dir / "ODAS_Check.txt").unlink(missing_ok=True)
-            
             # Submit job from the experiment directory
             result = subprocess.run(
                 ["/usr/bin/sbatch", str(self.job_script)],
@@ -119,7 +177,6 @@ class S2SForecastRunner:
                 capture_output=True,
                 text=True
             )
-            
             if result.returncode == 0:
                 job_id = result.stdout.strip()
                 logger.info(f"Job submitted successfully: {job_id}")
@@ -127,7 +184,6 @@ class S2SForecastRunner:
             else:
                 logger.error(f"Job submission failed: {result.stderr}")
                 return False, None
-                
         except Exception as e:
             logger.error(f"Error submitting job: {e}")
             return False, None
@@ -135,17 +191,17 @@ class S2SForecastRunner:
     def send_notification(self, success=True, message="", job_id=None):
         """Send email notification"""
         if success:
-            subject = f"V2 ODAS Run Submitted - {self.experiment_name}"
-            body = f"V2 ODAS Run Submitted for experiment: {self.experiment_name}"
+            subject = f"S2S3 Run Submitted - {self.experiment_name}"
+            body = f"S2S3 Run Submitted for experiment: {self.experiment_name}"
             if job_id:
                 body += f"\nJob ID: {job_id}"
         else:
-            subject = f"V2 ODAS Run Failed - {self.experiment_name}"
-            body = f"V2 ODAS Run Failed for experiment: {self.experiment_name}\nError: {message}"
-        
+            subject = f"S2S3 Run Failed - {self.experiment_name}"
+            body = f"S2S3 Run Failed for experiment: {self.experiment_name}\nError: {message}"
+            
         logger.info(f"Sending notification: {subject}")
-        
         # Simple notification - could enhance later
+        
         try:
             # For now, just log. Could implement actual email sending if needed
             logger.info(f"Would send email to {len(self.email_list)} recipients")
@@ -162,17 +218,16 @@ class S2SForecastRunner:
         if not self.validate_experiment():
             self.send_notification(success=False, message="Experiment validation failed")
             return 1
-        
-        # Check if forecast should run
-        if not self.check_forecast_date(forecast_date):
-            logger.info("Forecast not scheduled for this date")
-            return 0
-        
+
+        if not self.valid_fcst_date_check(forecast_date):
+            self.send_notification(success=False, message="Not a valid date for initiating a pentad forecast")
+            return 1
+
         # Wait for files
         if not self.wait_for_files(forecast_date):
             self.send_notification(success=False, message="Timeout waiting for input files")
             return 1
-        
+
         # Submit job
         success, job_id = self.submit_job()
         if not success:
@@ -189,7 +244,6 @@ if __name__ == "__main__":
         print("Usage: python s2s_forecast.py <experiment_name> <YYYY-MM-DD>")
         print("Example: python s2s_forecast.py S2S-2_1_ANA_002 2024-11-23")
         sys.exit(1)
-    
     experiment_name = sys.argv[1]
     forecast_date = sys.argv[2]
     
