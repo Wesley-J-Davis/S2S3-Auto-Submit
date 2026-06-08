@@ -62,75 +62,76 @@ class S2SForecastRunner:
         logger.info("Experiment validation passed")
         return True
         
-def valid_fcst_date_check(self, input_date):
-    """
-    Check if the input date is valid for forecast based on:
-    1. Must be a scheduled forecast date
-    2. Must have specific relationship with restart date based on experiment type
-       - For GiOCEAN_e1: Must be 30 pentads ahead of restart date
-       - For GiOcean_NRT: Must be 1 pentad ahead of restart date
+    def valid_fcst_date_check(self, input_date):
+        """
+        Check if the input date is valid for forecast based on:
+        1. Must be a scheduled forecast date
+        2. Must have specific relationship with restart date based on experiment type
+           - For GiOCEAN_e1: Must be 30 pentads ahead of restart date
+           - For GiOcean_NRT: Must be 1 pentad ahead of restart date
     
-    Returns: boolean indicating if forecast should run
-    """
-    try:
-        # Read forecast schedule
-        with open(self.forecast_dates_file, 'r') as f:
-            scheduled_dates = [line.strip() for line in f]
-        
-        # Parse restart date
-        with open(self.cap_restart, 'r') as f:
-            content = f.read().strip()
-        date_part = content.split()[0]
-        restart_date_object = datetime.strptime(date_part, '%Y%m%d')
-        formatted_restart_date = restart_date_object.strftime("%d-%b")
-        
-        # Format input date
-        input_date_object = datetime.strptime(input_date, "%Y-%m-%d")
-        formatted_input_date = input_date_object.strftime("%d-%b")
-        
-        # Check if input date is scheduled
-        if formatted_input_date not in scheduled_dates:
-            logger.info(f"Input date {formatted_input_date} is not a scheduled forecast date")
-            return False
-        
-        # Find positions in the schedule
+        Returns: boolean indicating if forecast should run
+        """
         try:
-            input_date_index = scheduled_dates.index(formatted_input_date)
-            restart_date_index = scheduled_dates.index(formatted_restart_date)
-        except ValueError:
-            logger.error(f"Restart date {formatted_restart_date} not found in schedule")
-            return False
+            # Read forecast schedule
+            with open(self.forecast_dates_file, 'r') as f:
+                scheduled_dates = [line.strip() for line in f]
         
-        # Calculate the distance between dates (handling wrap-around)
-        total_dates = len(scheduled_dates)
-        distance = (input_date_index - restart_date_index) % total_dates
+            # Parse restart date
+            with open(self.cap_restart, 'r') as f:
+                content = f.read().strip()
         
-        # Check experiment-specific conditions
-        if self.experiment_name == "GiOCEAN_e1":
-            if distance == 30:
-                logger.info(f"Valid: {formatted_input_date} is 30 pentads ahead of restart date {formatted_restart_date}")
-                return True
-            else:
-                logger.info(f"Invalid: {formatted_input_date} is {distance} pentads from restart date {formatted_restart_date} (expected 30)")
+            date_part = content.split()[0]
+            restart_date_object = datetime.strptime(date_part, '%Y%m%d')
+            formatted_restart_date = restart_date_object.strftime("%d-%b")
+        
+            # Format input date
+            input_date_object = datetime.strptime(input_date, "%Y-%m-%d")
+            formatted_input_date = input_date_object.strftime("%d-%b")
+        
+            # Check if input date is scheduled
+            if formatted_input_date not in scheduled_dates:
+                logger.info(f"Input date {formatted_input_date} is not a scheduled forecast date")
                 return False
+        
+            # Find positions in the schedule
+            try:
+                input_date_index = scheduled_dates.index(formatted_input_date)
+                restart_date_index = scheduled_dates.index(formatted_restart_date)
+            except ValueError:
+                logger.error(f"Restart date {formatted_restart_date} not found in schedule")
+                return False
+        
+            # Calculate the distance between dates (handling wrap-around)
+            total_dates = len(scheduled_dates)
+            distance = (input_date_index - restart_date_index) % total_dates
+        
+            # Check experiment-specific conditions
+            if self.experiment_name == "GiOCEAN_e1":
+                if distance == 37:
+                    logger.info(f"Valid: {formatted_input_date} is 37 pentads ahead of restart date {formatted_restart_date}")
+                    return True
+                else:
+                    logger.info(f"Invalid: {formatted_input_date} is {distance} pentads from restart date {formatted_restart_date} (expected 30)")
+                    return False
                 
-        elif self.experiment_name == "GiOcean_NRT":
-            if distance == 1:
-                logger.info(f"Valid: {formatted_input_date} is 1 pentad ahead of restart date {formatted_restart_date}")
-                return True
+            elif self.experiment_name == "GiOcean-NRT":
+                if distance == 1:
+                    logger.info(f"Valid: {formatted_input_date} is 1 pentad ahead of restart date {formatted_restart_date}")
+                    return True
+                else:
+                    logger.info(f"Invalid: {formatted_input_date} is {distance} pentads from restart date {formatted_restart_date} (expected 1)")
+                    return False
             else:
-                logger.info(f"Invalid: {formatted_input_date} is {distance} pentads from restart date {formatted_restart_date} (expected 1)")
+                logger.warning(f"Unknown experiment type: {self.experiment_name}")
                 return False
-        else:
-            logger.warning(f"Unknown experiment type: {self.experiment_name}")
-            return False
             
-    except FileNotFoundError as e:
-        logger.error(f"Required file not found: {e}")
-        return False
-    except (ValueError, IndexError) as e:
-        logger.error(f"Error processing dates: {e}")
-        return False
+        except FileNotFoundError as e:
+            logger.error(f"Required file not found: {e}")
+            return False
+        except (ValueError, IndexError) as e:
+            logger.error(f"Error processing dates: {e}")
+            return False
         
     def wait_for_files(self, forecast_date):
         """Wait for required files using the existing check script"""
@@ -197,8 +198,8 @@ def valid_fcst_date_check(self, input_date):
             if job_id:
                 body += f"\nJob ID: {job_id}"
         else:
-            subject = f"S2S3 Run Failed - {self.experiment_name}"
-            body = f"S2S3 Run Failed for experiment: {self.experiment_name}\nError: {message}"
+            subject = f"S2S3 status message  - {self.experiment_name}"
+            body = f"S2S3 status for experiment: {self.experiment_name}\nMessage: {message}"
             
         logger.info(f"Sending notification: {subject}")
         # Simple notification - could enhance later
@@ -220,8 +221,8 @@ def valid_fcst_date_check(self, input_date):
             return 1
 
         if not self.valid_fcst_date_check(forecast_date):
-            self.send_notification(success=False, message="Not a valid date for initiating a pentad forecast")
-            return 1
+            #self.send_notification(success=False, message="Not a valid date for initiating a pentad forecast")
+            return 0
 
         # Wait for files
         if not self.wait_for_files(forecast_date):
